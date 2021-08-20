@@ -1,0 +1,106 @@
+From 454e7f9c3a15b984af78979f086bd3a235bafa4b Mon Sep 17 00:00:00 2001
+From: root <root@mail.com>
+Date: Fri, 20 Aug 2021 00:00:00 +0000
+Subject: [PATCH] high performance preset
+
+spoof version
+
+allow dl_rate_threshold to be 0
+---
+ src/base/bittorrent/session.cpp              | 20 ++++++++++++++++++--
+ src/base/version.h.in                        |  8 ++++----
+ src/webui/www/private/views/preferences.html | 12 ++++++------
+ 3 files changed, 28 insertions(+), 12 deletions(-)
+
+diff --git a/src/base/bittorrent/session.cpp b/src/base/bittorrent/session.cpp
+index 23f638457..86fc2d2e9 100644
+--- a/src/base/bittorrent/session.cpp
++++ b/src/base/bittorrent/session.cpp
+@@ -355,7 +355,7 @@ Session::Session(QObject *parent)
+     , m_sendBufferWatermark(BITTORRENT_SESSION_KEY("SendBufferWatermark"), 500)
+     , m_sendBufferLowWatermark(BITTORRENT_SESSION_KEY("SendBufferLowWatermark"), 10)
+     , m_sendBufferWatermarkFactor(BITTORRENT_SESSION_KEY("SendBufferWatermarkFactor"), 50)
+-    , m_connectionSpeed(BITTORRENT_SESSION_KEY("ConnectionSpeed"), 30)
++    , m_connectionSpeed(BITTORRENT_SESSION_KEY("ConnectionSpeed"), 500)
+     , m_socketBacklogSize(BITTORRENT_SESSION_KEY("SocketBacklogSize"), 30)
+     , m_isAnonymousModeEnabled(BITTORRENT_SESSION_KEY("AnonymousModeEnabled"), false)
+     , m_isQueueingEnabled(BITTORRENT_SESSION_KEY("QueueingSystemEnabled"), false)
+@@ -1062,7 +1062,23 @@ void Session::initializeNativeSession()
+         | lt::alert::tracker_notification;
+     const std::string peerId = lt::generate_fingerprint(PEER_ID, QBT_VERSION_MAJOR, QBT_VERSION_MINOR, QBT_VERSION_BUGFIX, QBT_VERSION_BUILD);
+ 
+-    lt::settings_pack pack;
++    // https://www.libtorrent.org/reference-Settings.html
++    // Use libtorrent high performance preset
++    lt::settings_pack pack = lt::high_performance_seed();
++    pack.set_int(lt::settings_pack::torrent_connect_boost, 60);
++    pack.set_int(lt::settings_pack::tracker_backoff, 100);
++    pack.set_int(lt::settings_pack::predictive_piece_announce, 20);
++    pack.set_int(lt::settings_pack::send_not_sent_low_watermark, 16384);
++    pack.set_int(lt::settings_pack::allowed_fast_set_size, 0);
++    // 32MiB max queued disk writes
++    pack.set_int(lt::settings_pack::max_queued_disk_bytes, 32 * 1024 * 1024);
++    // 16KiB blocks, read 1MiB, write 8MiB
++    pack.set_int(lt::settings_pack::read_cache_line_size, 64);
++    pack.set_int(lt::settings_pack::write_cache_line_size, 512);
++    // cache size, 16KiB blocks, 1GB cache, 128MB volatile
++    pack.set_int(lt::settings_pack::cache_size, 65536);
++    pack.set_int(lt::settings_pack::cache_size_volatile, 8192);
++    pack.set_bool(lt::settings_pack::smooth_connects, false);
+     pack.set_int(lt::settings_pack::alert_mask, alertMask);
+     pack.set_str(lt::settings_pack::peer_fingerprint, peerId);
+     pack.set_bool(lt::settings_pack::listen_system_port_fallback, false);
+diff --git a/src/base/version.h.in b/src/base/version.h.in
+index c67e138eb..610364366 100644
+--- a/src/base/version.h.in
++++ b/src/base/version.h.in
+@@ -28,11 +28,11 @@
+ 
+ #pragma once
+ 
+-#define QBT_VERSION_MAJOR 4
+-#define QBT_VERSION_MINOR 4
+-#define QBT_VERSION_BUGFIX 0
++#define QBT_VERSION_MAJOR 3
++#define QBT_VERSION_MINOR 3
++#define QBT_VERSION_BUGFIX 16
+ #define QBT_VERSION_BUILD 0
+-#define QBT_VERSION_STATUS "beta2"  // Should be empty for stable releases!
++#define QBT_VERSION_STATUS ""  // Should be empty for stable releases!
+ 
+ #define QBT__STRINGIFY(x) #x
+ #define QBT_STRINGIFY(x) QBT__STRINGIFY(x)
+diff --git a/src/webui/www/private/views/preferences.html b/src/webui/www/private/views/preferences.html
+index ef1267de0..7bce3f1e9 100644
+--- a/src/webui/www/private/views/preferences.html
++++ b/src/webui/www/private/views/preferences.html
+@@ -2174,20 +2174,20 @@
+                 settings.set('max_active_torrents', max_active_torrents);
+                 settings.set('dont_count_slow_torrents', $('dont_count_slow_torrents_checkbox').getProperty('checked'));
+                 const dl_rate_threshold = $('dl_rate_threshold').getProperty('value').toInt();
+-                if (isNaN(dl_rate_threshold) || (dl_rate_threshold < 1)) {
+-                    alert("QBT_TR(Download rate threshold must be greater than 0.)QBT_TR[CONTEXT=HttpServer]");
++                if (isNaN(dl_rate_threshold) || (dl_rate_threshold < -1)) {
++                    alert("QBT_TR(Download rate threshold must be greater than -1.)QBT_TR[CONTEXT=HttpServer]");
+                     return;
+                 }
+                 settings.set('slow_torrent_dl_rate_threshold', dl_rate_threshold);
+                 const ul_rate_threshold = $('ul_rate_threshold').getProperty('value').toInt();
+-                if (isNaN(ul_rate_threshold) || (ul_rate_threshold < 1)) {
+-                    alert("QBT_TR(Upload rate threshold must be greater than 0.)QBT_TR[CONTEXT=HttpServer]");
++                if (isNaN(ul_rate_threshold) || (ul_rate_threshold < -1)) {
++                    alert("QBT_TR(Upload rate threshold must be greater than -1.)QBT_TR[CONTEXT=HttpServer]");
+                     return;
+                 }
+                 settings.set('slow_torrent_ul_rate_threshold', ul_rate_threshold);
+                 const torrent_inactive_timer = $('torrent_inactive_timer').getProperty('value').toInt();
+-                if (isNaN(torrent_inactive_timer) || (torrent_inactive_timer < 1)) {
+-                    alert("QBT_TR(Torrent inactivity timer must be greater than 0.)QBT_TR[CONTEXT=HttpServer]");
++                if (isNaN(torrent_inactive_timer) || (torrent_inactive_timer < -1)) {
++                    alert("QBT_TR(Torrent inactivity timer must be greater than -1.)QBT_TR[CONTEXT=HttpServer]");
+                     return;
+                 }
+                 settings.set('slow_torrent_inactive_timer', torrent_inactive_timer);
+-- 
+2.32.0.windows.2
+
